@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  app:
+    ports:
+      - "8085:80"
+    volumes:
+      - ../lucy:/app
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://200.7.134.12:8085
+    # Ajuste rápido de permisos para dev (si el bind mount los pisa)
+    command: >
+      bash -lc "
+        mkdir -p storage bootstrap/cache &&
+        chown -R www-data:www-data storage bootstrap/cache ||
+        true;
+        exec apache2-foreground
+      "
+
+  pma:
+    image: phpmyadmin/phpmyadmin:latest
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      - PMA_HOST=db
+      - PMA_PORT=3306
+      - PMA_ARBITRARY=0
+      - UPLOAD_LIMIT=1G
+    ports:
+      - "8081:80"
+
+
+
+# Para desarrollo, simplemente agregás el docker-compose.override.yml (con el bind ../lucy:/app, pma, etc.).
+
+# Para producción, no incluyas el override; construí una imagen que ya traiga el código (o copiás el código en el Dockerfile) y levantá sólo con docker-compose.yml.
