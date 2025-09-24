@@ -1,0 +1,64 @@
+# =================== CONFIGURACIONES (editar según necesidad) ===================
+# WEB_PORT: puerto host para la app Laravel (HTTP). Por defecto 8080.
+# PMA_PORT: puerto host para phpMyAdmin de Lucy. Por defecto 8081.
+# DB_HOST_PORT: puerto host estándar para MySQL (3306) para acceso desde herramientas.
+# Volumen:
+#   ./lucy -> /app
+# ===============================================================================
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=lucy
+      - MYSQL_USER=lucy
+      - MYSQL_PASSWORD=lucypass
+      - MYSQL_ROOT_PASSWORD=rootpass
+    command: --default-authentication-plugin=mysql_native_password
+    volumes:
+      - ./data/db:/var/lib/mysql
+    ports:
+      - "3306:3306"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        LOCAL_UID: 1001   # match con usuario host
+        LOCAL_GID: 1001
+    restart: unless-stopped
+    depends_on: [db]
+    working_dir: /app
+    environment:
+      - APACHE_RUN_USER=app
+      - APACHE_RUN_GROUP=app
+      - DB_HOST=db
+      - DB_DATABASE=lucy
+      - DB_USERNAME=lucy
+      - DB_PASSWORD=lucypass
+      - TZ=America/Argentina/Cordoba
+      - COMPOSER_HOME=/home/app/.composer
+    volumes:
+      - ../lucy:/app
+    ports:
+      - "8080:80"
+
+  pma:
+    image: phpmyadmin/phpmyadmin:latest
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      - PMA_HOST=db
+      - PMA_PORT=3306
+      - PMA_ARBITRARY=0
+      - UPLOAD_LIMIT=1G
+    ports:
+      - "8081:80"
+
+# =================== MODO PRODUCCIÓN (comentarios) ===================
+# - Considere no mapear 3306 a host si no lo necesita.
+# - Use una imagen multi-stage para compilar assets y copiar sólo 'public/' estáticos.
+# - Añada un servicio redis/queue si usa colas.
+# - Opcional: agregar un contenedor de scheduler/cron para 'php artisan schedule:run'.
+# ===============================================================================
