@@ -42,7 +42,7 @@ services:
     volumes:
       - ../lucy:/app
     ports:
-      - "8080:80"
+      - "8085:80"
 
   pma:
     image: phpmyadmin/phpmyadmin:latest

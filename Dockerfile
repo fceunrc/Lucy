@@ -1,39 +1,57 @@
-# =================== CONFIGURACIONES (editar según necesidad) ===================
-# ARGs para mapear UID/GID del host (desarrollo). En producción puede usar www-data (33:33).
+# Puedes sobreescribir estos ARG desde docker-compose (build.args)
 ARG LOCAL_UID=1001
 ARG LOCAL_GID=1001
 
 FROM php:8.2-apache AS base
 
-# Dependencias del sistema y extensiones PHP para Laravel
-RUN apt-get update && apt-get install -y --no-install-recommends         git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libicu-dev         libpq-dev libjpeg-dev libfreetype6-dev libssl-dev curl gnupg ca-certificates         && rm -rf /var/lib/apt/lists/*
+# ARGs deben redeclararse dentro de la etapa
+ARG LOCAL_UID=1001
+ARG LOCAL_GID=1001
 
-RUN docker-php-ext-configure gd --with-freetype --with-jpeg         && docker-php-ext-install -j$(nproc) gd zip intl pdo_mysql bcmath opcache
+# Paquetes base + extensiones necesarias para Laravel
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libicu-dev \
+    libpq-dev libjpeg-dev libfreetype6-dev libssl-dev curl gnupg ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# Habilitar Apache mods útiles para Laravel
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
+ && docker-php-ext-install -j"$(nproc)" gd zip intl pdo_mysql bcmath opcache
+
+# Apache mods útiles
 RUN a2enmod rewrite headers
 
-# Composer (oficial)
+# Composer oficial
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Node.js 20.x (Nodesource)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash -         && apt-get update && apt-get install -y nodejs         && rm -rf /var/lib/apt/lists/*
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get update && apt-get install -y nodejs \
+ && rm -rf /var/lib/apt/lists/*
 
-# Crear usuario de desarrollo con UID/GID del host
-RUN groupadd -g ${LOCAL_GID} app && useradd -m -u ${LOCAL_UID} -g ${LOCAL_GID} app
+# Crear usuario/grupo de desarrollo (coinciden con el host)
+RUN set -eux; \
+    if ! getent group "${LOCAL_GID}" >/dev/null; then \
+      groupadd -g "${LOCAL_GID}" app; \
+    else \
+      groupmod -n app "$(getent group "${LOCAL_GID}" | cut -d: -f1)"; \
+    fi; \
+    if ! getent passwd "${LOCAL_UID}" >/dev/null; then \
+      useradd -m -u "${LOCAL_UID}" -g "${LOCAL_GID}" app; \
+    else \
+      usermod -l app -u "${LOCAL_UID}" -g "${LOCAL_GID}" "$(getent passwd "${LOCAL_UID}" | cut -d: -f1)"; \
+    fi
 
+# DocumentRoot a /app/public
 ENV APACHE_DOCUMENT_ROOT=/app/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf         && sed -ri -e 's!/var/www/!/app/!g' /etc/apache2/apache2.conf
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf \
+ && sed -ri -e 's!/var/www/!/app/!g' /etc/apache2/apache2.conf
 
 WORKDIR /app
+RUN chown -R "${LOCAL_UID}:${LOCAL_GID}" /app /var/www
 
-# Permisos básicos
-RUN chown -R ${LOCAL_UID}:${LOCAL_GID} /app /var/www
+USER app
 
-USER ${LOCAL_UID}:${LOCAL_GID}
-
-# =================== NOTAS DE PRODUCCIÓN ===================
-# - En producción puede compilar assets y usar un servidor dedicado para servir estáticos.
-# - Considere usar opcache con configuración agresiva, y deshabilitar xdebug si lo agrega.
-# - Puede cambiar USER a www-data (33:33) y usar volúmenes de solo lectura.
-# ===============================================================================
+# -------------------- Notas de Producción --------------------
+# - Podés cambiar USER a www-data (33:33) y usar volúmenes RO.
+# - Multi-stage: compilar assets y copiar sólo /public/build.
+# - No expongas 3306 si no hace falta. Usa TLS/reverse proxy para HTTP.
